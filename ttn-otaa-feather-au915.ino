@@ -81,6 +81,11 @@ void os_getDevEui (u1_t* buf) { memcpy_P(buf, DEVEUI, 8);}
 static const u1_t PROGMEM APPKEY[16] = { FILLMEIN };
 void os_getDevKey (u1_t* buf) {  memcpy_P(buf, APPKEY, 16);}
 
+// EPOCH Time Defines
+#define GPS_EPOCH_OFFSET 315964800 // GPS Epoch offset in seconds
+#define LEAP_SECONDS_1980 19 // Leap seconds from 1970 to 1080
+#define LEAP_SECONDS_NOW 37
+
 // Payload to send to gateway
 static uint8_t payload[] = "Hello, world!";
 static osjob_t sendjob;
@@ -137,6 +142,8 @@ const lmic_pinmap lmic_pins = {
 # error "Unknown target"
 #endif /* BSP Target */
 
+static uint32_t userUTCTime; // Seconds since the UTC epoch
+
 // A buffer for printing log messages.
 static constexpr int MAX_MSG = 256;
 static char msg[MAX_MSG];
@@ -186,6 +193,49 @@ void log_msg(const char *fmt, bool show_ticks=false, ...) {
     serial.println();
     msg[0] = '\0'; // clear string memory after use
 #endif /* USE_SERIAL */
+}
+
+void user_request_network_time_callback(void *pVoidUserUTCTime, int flagSuccess) {
+    // Explicit conversion from void* to uint32_t* to avoid compiler errors
+    uint32_t *pUserUTCTime = (uint32_t *) pVoidUserUTCTime;
+
+    // A struct that will be populated by LMIC_getNetworkTimeReference.
+    // It contains the following fields:
+    //  - tLocal: the value returned by os_GetTime() when the time
+    //            request was sent to the gateway, and
+    //  - tNetwork: the seconds between the GPS epoch and the time
+    //              the gateway received the time request
+    lmic_time_reference_t lmicTimeReference;
+
+    if (flagSuccess != 1) {
+        log_msg("user_request_network_time_callback: Not a success");
+        return;
+    }
+
+    // Populate "lmic_time_reference"
+    flagSuccess = LMIC_getNetworkTimeReference(&lmicTimeReference);
+    if (flagSuccess != 1) {
+        log_msg("user_request_network_time_callback: LMIC_getNetworkTimeReference didn't succeed");
+        return;
+    }
+
+    // Update userUTCTime, considering the difference between the GPS and UTC
+    // epoch, and the leap seconds
+    *pUserUTCTime = lmicTimeReference.tNetwork + GPS_EPOCH_OFFSET + \
+            LEAP_SECONDS_1980 - LEAP_SECONDS_NOW;
+
+    {
+    // Add the delay between the instant the time was transmitted and
+    // the current time
+    // Current time, in ticks
+    ostime_t ticksNow = os_getTime();
+    // Time when the request was sent, in ticks
+    ostime_t ticksRequestSent = lmicTimeReference.tLocal;
+    uint32_t requestDelaySec = osticks2ms(ticksNow - ticksRequestSent) / 1000;
+    *pUserUTCTime += requestDelaySec;
+    // All that gets the sketch to somewhere near UTC.
+    log_msg("Epoch time set from Network");
+    }
 }
 
 void printHex2(unsigned v) {
@@ -448,6 +498,7 @@ void setup() {
 
     log_msg("Joining");
     LMIC_startJoining();
+    LMIC_requestNetworkTime(user_request_network_time_callback, &userUTCTime);
 }
 
 void loop() {
