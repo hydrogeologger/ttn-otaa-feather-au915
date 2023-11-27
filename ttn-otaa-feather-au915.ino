@@ -85,19 +85,19 @@ SDI12 mySDI12(SDI12_DATA_PIN);
 // first. When copying an EUI from ttnctl output, this means to reverse
 // the bytes. For TTN issued EUIs the last bytes should be 0xD5, 0xB3,
 // 0x70.
-static const u1_t PROGMEM APPEUI[8]= { FILLMEIN };
+static const u1_t PROGMEM APPEUI[8]= { 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00 };
 void os_getArtEui (u1_t* buf) { memcpy_P(buf, APPEUI, 8);}
 
 // End-device Identifier (u1_t[8]) in lsb format
 // This should also be in little endian format, see above.
-static const u1_t PROGMEM DEVEUI[8]= { FILLMEIN };
+static const u1_t PROGMEM DEVEUI[8]= { 0xf3, 0xc2, 0xe8, 0x23, 0x2c, 0x3a, 0x23, 0x74 };
 void os_getDevEui (u1_t* buf) { memcpy_P(buf, DEVEUI, 8);}
 
 // Application Key (u1_t[16]) in msb format
 // This key should be in big endian format (or, since it is not really a
 // number but a block of memory, endianness does not really apply). In
 // practice, a key taken from the TTN console can be copied as-is.
-static const u1_t PROGMEM APPKEY[16] = { FILLMEIN };
+static const u1_t PROGMEM APPKEY[16] = { 0x75, 0x91, 0x12, 0xf7, 0xce, 0xd1, 0x23, 0x82, 0x1a, 0x06, 0xdb, 0x51, 0x2a, 0x90, 0x92, 0xd2 };
 void os_getDevKey (u1_t* buf) {  memcpy_P(buf, APPKEY, 16);}
 
 // EPOCH Time Defines
