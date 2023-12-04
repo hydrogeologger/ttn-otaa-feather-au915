@@ -268,6 +268,51 @@ void user_request_network_time_callback(void *pVoidUserUTCTime, int flagSuccess)
             rtc.getSeconds());
 }
 
+/*
+ * This function is used to set the alarm to a relative time in the future, such as when
+ * sleeping between LMIC tasks.
+ */
+void set_delta_alarm(uint32_t delta_seconds) {
+    int32_t ss = (int32_t)rtc.getSeconds();
+    int32_t mm = (int32_t)rtc.getMinutes();
+    int32_t hh = (int32_t)rtc.getHours();
+
+    // Sanity check.
+    if (delta_seconds < 1) {
+        delta_seconds = 1;
+    }
+
+    int32_t delta = delta_seconds;
+    int32_t hh_delta = delta / 3600; delta -= (hh_delta * 3600);
+    // Will always be less than 1 hour.
+    int32_t mm_delta = delta / 60; delta -= (mm_delta * 60);
+    // Will always be less than 1 minute.
+    int32_t ss_delta = delta;
+
+    ss += ss_delta;
+    if (ss > 59) {
+        ss = ss % 60;
+        mm_delta++;
+    }
+
+    mm += mm_delta;
+    if (mm > 59) {
+        mm = mm % 60;
+        hh_delta++;
+    }
+
+    hh = (hh + hh_delta) % 24;
+
+    log_msg("Delta(s) = %d, wake at %02d:%02d:%02d", true,
+            delta_seconds,
+            hh,
+            mm,
+            ss);
+
+    rtc.setAlarmTime((uint8_t)(hh & 0xff), (uint8_t)(mm & 0xff), (uint8_t)(ss & 0xff));
+    rtc.enableAlarm(RTCZero::MATCH_HHMMSS);
+}
+
 void printHex2(unsigned v) {
     v &= 0xff;
     if (v < 16)
