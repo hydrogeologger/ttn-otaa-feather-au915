@@ -551,6 +551,7 @@ void setup() {
     #ifdef BATTERY_ADC_PIN
         pinMode(BATTERY_ADC_PIN, INPUT);
     #endif
+    pinMode(LED_BUILTIN, OUTPUT);
     delay(5000);
     #if USE_SERIAL
         serial.begin(SERIAL_BAUD);
@@ -607,6 +608,36 @@ void loop() {
                 state = STATE_IDLE;
                 break;
             }
+            digitalWrite(LED_BUILTIN, LOW);
+            set_delta_alarm(TX_INTERVAL);
+
+            #if USE_SERIAL
+                serial.flush();
+                // Close serial port
+                serial.end();
+                // Safely detach USB prior to sleeping
+                USBDevice.detach();
+            #endif /* USE_SERIAL */
+
+            // Sleep until next alarm match
+            rtc.standbyMode();
+
+            // Disable the alarm in case it was set to some short interval and LMIC
+            // tasks will run for longer than that. It probably wouldn't cause
+            // trouble but may as well be sure.
+            rtc.disableAlarm();
+
+            digitalWrite(LED_BUILTIN, HIGH);
+
+            #if USE_SERIAL
+                // Re-attach USB
+                USBDevice.attach();
+                // Open serial port
+                serial.begin(SERIAL_BAUD);
+                while (! serial);
+                log_msg("Woke Up!", true);
+            #endif /* USE_SERIAL */
+            state = STATE_IDLE;
             break;
         }
         case STATE_IDLE:
