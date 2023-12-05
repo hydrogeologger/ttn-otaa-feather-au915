@@ -47,6 +47,14 @@ const unsigned TX_INTERVAL = 60;
 #define SERIAL_BLOCKING 1
 #define DEBUG 0
 
+/* Battery Configuration */
+// #define BATTERY_ADC_PIN A7
+#define BATTERY_MAP_VAL_MIN 3.09 * 100 // 3.09V at 0%, 3.2V at 10%
+#define BATTERY_MAP_VAL_MAX 4.2 * 100 // 4.2V
+#define ADC_REF_VOLTAGE 3.3 // 3.3V
+#define BATT_ADC_TO_VOLT(adcVal) (adcVal * 2 * ADC_REF_VOLTAGE / 1024)
+#define BATT_ADC_TO_INT_SHIFT(adcVal) (BATT_ADC_TO_VOLT(adcVal) * 100)
+
 //
 // For normal use, we require that you edit the sketch to replace FILLMEIN
 // with values assigned by the TTN console. However, for regression tests,
@@ -413,6 +421,9 @@ void do_send(osjob_t* j){
 }
 
 void setup() {
+    #ifdef BATTERY_ADC_PIN
+        pinMode(BATTERY_ADC_PIN, INPUT);
+    #endif
     delay(5000);
     #if USE_SERIAL
         serial.begin(SERIAL_BAUD);
@@ -461,6 +472,25 @@ void loop() {
 
 
     if (!os_queryTimeCriticalJobs(sec2osticks(TX_INTERVAL))) {
+        #ifdef BATTERY_ADC_PIN
+            uint16_t batteryADC = analogRead(BATTERY_ADC_PIN);
+            long batteryLevelMCMD = map(BATT_ADC_TO_INT_SHIFT(batteryADC),
+                    BATTERY_MAP_VAL_MIN, BATTERY_MAP_VAL_MAX,
+                    MCMD_DEVS_BATT_MIN, MCMD_DEVS_BATT_MAX);
+            if (batteryLevelMCMD > MCMD_DEVS_BATT_MAX) {
+                batteryLevelMCMD = MCMD_DEVS_BATT_MAX;
+            } else if (batteryLevelMCMD < MCMD_DEVS_BATT_MIN) {
+                batteryLevelMCMD = MCMD_DEVS_BATT_MIN;
+            }
+            #if USE_SERIAL
+                snprintf(msg, MAX_MSG, "Battery: ADC=%d, Volt=%f, LMIC_vBat=%d\n",
+                        batteryADC,
+                        BATT_ADC_TO_INT_SHIFT(batteryADC),
+                        batteryLevelMCMD);
+                serial.write(msg);
+            #endif /* USE_SERIAL */
+            LMIC_setBatteryLevel(batteryLevelMCMD);
+        #endif /* BATTERY_ADC_PIN */
         // Start job (sending automatically starts OTAA too if not yet joined)
         os_setCallback(&sendjob, do_send);
     }
