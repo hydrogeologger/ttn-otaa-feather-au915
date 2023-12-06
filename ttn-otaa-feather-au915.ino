@@ -36,10 +36,11 @@
 #include <hal/hal.h>
 #include <SPI.h>
 #include <RTCZero.h>
+#include <CayenneLPP.h>
 
 // Schedule TX every this many seconds (might become longer due to duty
 // cycle limitations).
-const unsigned TX_INTERVAL = 60;
+const unsigned TX_INTERVAL = 60; // 1 hour = 60 * 60 = 3600
 
 // Serial1 works with standby mode.
 #define serial Serial
@@ -98,8 +99,10 @@ void os_getDevKey (u1_t* buf) {  memcpy_P(buf, APPKEY, 16);}
 #define LEAP_SECONDS_NOW 37
 #define HOURS_TO_SECONDS(hrs) (hrs * 60 * 60)
 
-// Payload to send to gateway
-static uint8_t payload[] = "Hello, world!";
+/* Payload Details*/
+#define MAX_CAYENNE_PAYLOAD_SIZE 51
+CayenneLPP lpp(MAX_CAYENNE_PAYLOAD_SIZE);
+// static uint8_t payload[] = "Hello, world!";
 static osjob_t sendjob;
 
 // Pin mapping
@@ -475,7 +478,8 @@ void do_send(osjob_t* j){
     } else {
         // Prepare upstream data transmission at the next possible time.
         lmic_tx_error_t txDataError;
-        txDataError = LMIC_setTxData2(1, payload, sizeof(payload)-1, 0);
+        // txDataError = LMIC_setTxData2(1, payload, sizeof(payload)-1, 0);
+        txDataError = LMIC_setTxData2(1, lpp.getBuffer(), lpp.getSize(), 0);
 
         if (txDataError == LMIC_ERROR_SUCCESS) {
             log_msg("Packet queued");
@@ -588,6 +592,8 @@ void loop() {
             log_msg("State: Idle");
             if (!os_queryTimeCriticalJobs(sec2osticks(TX_INTERVAL))) {
                 log_msg("No scheduled jobs, scheduling do_sent() to run now.");
+                lpp.reset();
+
                 #ifdef BATTERY_ADC_PIN
                     uint16_t batteryADC = analogRead(BATTERY_ADC_PIN);
                     long batteryLevelMCMD = map(BATT_ADC_TO_INT_SHIFT(batteryADC),
@@ -606,6 +612,7 @@ void loop() {
                         serial.write(msg);
                     #endif /* USE_SERIAL */
                     LMIC_setBatteryLevel(batteryLevelMCMD);
+                    lpp.addAnalogInput(0, BATT_ADC_TO_VOLT(batteryADC)); // 2 decimal place
                 #endif /* BATTERY_ADC_PIN */
                 // Start job (sending automatically starts OTAA too if not yet joined)
                 os_setCallback(&sendjob, do_send);
