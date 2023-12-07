@@ -40,6 +40,12 @@
 // cycle limitations).
 const unsigned TX_INTERVAL = 60;
 
+// Serial1 works with standby mode.
+#define serial Serial
+#define SERIAL_BAUD 9600
+#define USE_SERIAL 1
+#define SERIAL_BLOCKING 1
+
 //
 // For normal use, we require that you edit the sketch to replace FILLMEIN
 // with values assigned by the TTN console. However, for regression tests,
@@ -130,58 +136,85 @@ const lmic_pinmap lmic_pins = {
 # error "Unknown target"
 #endif /* BSP Target */
 
+// A buffer for printing log messages.
+static constexpr int MAX_MSG = 256;
+static char msg[MAX_MSG];
+
+// A printf-like function to print log messages prefixed by the current
+// LMIC tick value. Don't call it before os_init();
+//
+// The RTC timestamps will start at 00:00:00, but will update to UTC
+// if the DeviceTimeReq is answered.
+void log_msg(const char *fmt, bool show_ticks=false, ...) {
+#if USE_SERIAL
+    // snprintf(msg, MAX_MSG, "%02d:%02d:%02d / ", rtc.getHours(), rtc.getMinutes(), rtc.getSeconds());
+    // serial.write(msg, strlen(msg));
+    if (show_ticks) {
+        snprintf(msg, MAX_MSG, "%ld: ", os_getTime());
+        serial.write(msg, strlen(msg));
+    }
+    va_list args;
+    va_start(args, show_ticks);
+    vsnprintf(msg, MAX_MSG, fmt, args);
+    va_end(args);
+    serial.write(msg, strlen(msg));
+    serial.println();
+    msg[0] = '\0'; // clear string memory after use
+#endif /* USE_SERIAL */
+}
+
 void printHex2(unsigned v) {
     v &= 0xff;
     if (v < 16)
-        Serial.print('0');
-    Serial.print(v, HEX);
+        serial.print('0');
+    serial.print(v, HEX);
 }
 
 void onEvent (ev_t ev) {
-    Serial.print(os_getTime());
-    Serial.print(": ");
     switch(ev) {
         case EV_SCAN_TIMEOUT:
-            Serial.println(F("EV_SCAN_TIMEOUT"));
+            log_msg("EV_SCAN_TIMEOUT", true);
             break;
         case EV_BEACON_FOUND:
-            Serial.println(F("EV_BEACON_FOUND"));
+            log_msg("EV_BEACON_FOUND", true);
             break;
         case EV_BEACON_MISSED:
-            Serial.println(F("EV_BEACON_MISSED"));
+            log_msg("EV_BEACON_MISSED", true);
             break;
         case EV_BEACON_TRACKED:
-            Serial.println(F("EV_BEACON_TRACKED"));
+            log_msg("EV_BEACON_TRACKED", true);
             break;
         case EV_JOINING:
-            Serial.println(F("EV_JOINING"));
+            log_msg("EV_JOINING", true);
             break;
         case EV_JOINED:
-            Serial.println(F("EV_JOINED"));
+            log_msg("EV_JOINED", true);
             {
               u4_t netid = 0;
               devaddr_t devaddr = 0;
               u1_t nwkKey[16];
               u1_t artKey[16];
               LMIC_getSessionKeys(&netid, &devaddr, nwkKey, artKey);
-              Serial.print("netid: ");
-              Serial.println(netid, DEC);
-              Serial.print("devaddr: ");
-              Serial.println(devaddr, HEX);
-              Serial.print("AppSKey: ");
-              for (size_t i=0; i<sizeof(artKey); ++i) {
-                if (i != 0)
-                  Serial.print("-");
-                printHex2(artKey[i]);
-              }
-              Serial.println("");
-              Serial.print("NwkSKey: ");
-              for (size_t i=0; i<sizeof(nwkKey); ++i) {
-                      if (i != 0)
-                              Serial.print("-");
-                      printHex2(nwkKey[i]);
-              }
-              Serial.println();
+              #if USE_SERIAL
+                serial.print("netid: ");
+                serial.println(netid, DEC);
+                serial.print("devaddr: ");
+                serial.println(devaddr, HEX);
+                serial.print("AppSKey: ");
+                for (size_t i=0; i<sizeof(artKey); ++i) {
+                    if (i != 0)
+                    serial.print("-");
+                    printHex2(artKey[i]);
+                }
+                serial.println("");
+                serial.print("NwkSKey: ");
+                for (size_t i=0; i<sizeof(nwkKey); ++i) {
+                        if (i != 0)
+                                serial.print("-");
+                        printHex2(nwkKey[i]);
+                }
+                serial.println();
+              #endif /* USE_SERIAL */
             }
             // Disable link check validation (automatically enabled
             // during join, but because slow data rates change max TX
@@ -193,82 +226,81 @@ void onEvent (ev_t ev) {
         || point in wasting codespace on it.
         ||
         || case EV_RFU1:
-        ||     Serial.println(F("EV_RFU1"));
+        ||     serial.println(F("EV_RFU1"));
         ||     break;
         */
         case EV_JOIN_FAILED:
-            Serial.println(F("EV_JOIN_FAILED"));
+            log_msg("EV_JOIN_FAILED", true);
             break;
         case EV_REJOIN_FAILED:
-            Serial.println(F("EV_REJOIN_FAILED"));
+            log_msg("EV_REJOIN_FAILED", true);
             break;
             break;
         case EV_TXCOMPLETE:
-            Serial.println(F("EV_TXCOMPLETE (includes waiting for RX windows)"));
-            if (LMIC.txrxFlags & TXRX_ACK) { Serial.println(F("Received ack")); }
+            log_msg("EV_TXCOMPLETE (includes waiting for RX windows)", true);
+            if (LMIC.txrxFlags & TXRX_ACK) { log_msg("Received ack", true); }
             if (LMIC.dataLen) {
               if (LMIC.txrxFlags & TXRX_PORT) {
-                Serial.println(F("FPort: "));
-                Serial.println(LMIC.frame[LMIC.dataBeg-1]);
+                log_msg("FPort: %d, Received %d bytes of payload", false, \
+                        LMIC.frame[LMIC.dataBeg-1], LMIC.dataLen);
+              } else {
+                log_msg("Received %d bytes of payload", false, LMIC.dataLen);
               }
-              Serial.println(F("Received "));
-              Serial.println(LMIC.dataLen);
-              Serial.println(F(" bytes of payload"));
             } else if (LMIC.dataBeg) {
-                Serial.print(F("MAC message received: "));
+            #if USE_SERIAL
+                serial.print(F("MAC message received: "));
                 for (unsigned i = 0; i < LMIC.dataBeg; ++i) {
-                    Serial.print(F(" "));
+                    serial.print(F(" "));
                     printHex2(LMIC.frame[i]);
                 }
-                Serial.println();
-            }
-            Serial.print("adrAckReq: ");
-            Serial.print(LMIC.adrAckReq);
-            Serial.print("  adrChanged: ");
-            Serial.println(LMIC.adrChanged);
+                serial.println();
+            #endif /* USE_SERIAL */
+            } /* LMIC.dataBeg */
+            log_msg("adrAckReq: %d,  adrChanged: %d", false,
+                    LMIC.adrAckReq, 
+                    LMIC.adrChanged);
             // Schedule next transmission
             // os_setTimedCallback(&sendjob, os_getTime()+sec2osticks(TX_INTERVAL), do_send);
             break;
         case EV_LOST_TSYNC:
-            Serial.println(F("EV_LOST_TSYNC"));
+            log_msg("EV_LOST_TSYNC", true);
             break;
         case EV_RESET:
-            Serial.println(F("EV_RESET"));
+            log_msg("EV_RESET", true);
             break;
         case EV_RXCOMPLETE:
             // data received in ping slot
-            Serial.println(F("EV_RXCOMPLETE"));
+            log_msg("EV_RXCOMPLETE", true);
             break;
         case EV_LINK_DEAD:
-            Serial.println(F("EV_LINK_DEAD"));
+            log_msg("EV_LINK_DEAD", true);
             break;
         case EV_LINK_ALIVE:
-            Serial.println(F("EV_LINK_ALIVE"));
+            log_msg("EV_LINK_ALIVE", true);
             break;
         /*
         || This event is defined but not used in the code. No
         || point in wasting codespace on it.
         ||
         || case EV_SCAN_FOUND:
-        ||    Serial.println(F("EV_SCAN_FOUND"));
+        ||    serial.println(F("EV_SCAN_FOUND"));
         ||    break;
         */
         case EV_TXSTART:
-            Serial.println(F("EV_TXSTART"));
+            log_msg("EV_TXSTART", true);
             break;
         case EV_TXCANCELED:
-            Serial.println(F("EV_TXCANCELED"));
+            log_msg("EV_TXCANCELED", true);
             break;
         case EV_RXSTART:
             /* do not print anything -- it wrecks timing */
             break;
         case EV_JOIN_TXCOMPLETE:
-            Serial.println(F("EV_JOIN_TXCOMPLETE: no JoinAccept"));
+            log_msg("EV_JOIN_TXCOMPLETE: no JoinAccept", true);
             break;
 
         default:
-            Serial.print(F("Unknown event: "));
-            Serial.println((unsigned) ev);
+            log_msg("Unknown event: %u", true, (unsigned) ev);
             break;
     }
 }
@@ -283,22 +315,22 @@ void do_send(osjob_t* j){
 
     // Check if there is not a current TX/RX job running
     if (LMIC.opmode & OP_TXRXPEND) {
-        Serial.println(F("OP_TXRXPEND, not sending"));
+        log_msg("OP_TXRXPEND, not sending");
     } else {
         // Prepare upstream data transmission at the next possible time.
         lmic_tx_error_t txDataError;
         txDataError = LMIC_setTxData2(1, payload, sizeof(payload)-1, 0);
 
         if (txDataError == LMIC_ERROR_SUCCESS) {
-            Serial.println(F("Packet queued"));
+            log_msg("Packet queued");
         } else if (txDataError == LMIC_ERROR_TX_BUSY) {
-            Serial.println(F("Packet not sent, LMIC busy sending other message"));
+            log_msg("Packet not sent, LMIC busy sending other message");
         } else if (txDataError == LMIC_ERROR_TX_TOO_LARGE) {
-            Serial.println(F("Packet too large for current datarate"));
+            log_msg("Packet too large for current datarate");
         } else if (txDataError == LMIC_ERROR_TX_NOT_FEASIBLE) {
-            Serial.println(F("Packet unsuitable for current datarate"));
+            log_msg("Packet unsuitable for current datarate");
         } else {
-            Serial.println(F("Queued message failed to send for other reason than data len"));
+            log_msg("Queued message failed to send for other reason than data len");
         }
     }
     // Next TX is scheduled after TX_COMPLETE event.
@@ -306,9 +338,13 @@ void do_send(osjob_t* j){
 
 void setup() {
     delay(5000);
-    Serial.begin(9600);
-    while (! Serial);
-    Serial.println(F("Starting"));
+    #if USE_SERIAL
+        serial.begin(SERIAL_BAUD);
+        #if SERIAL_BLOCKING
+        while (! serial);
+        #endif /* SERIAL_BLOCKING */
+        log_msg("Starting");
+    #endif /* USE_SERIAL */
 
     // LMIC init
     os_init();
@@ -327,7 +363,7 @@ void setup() {
     LMIC_setBatteryLevel(MCMD_DEVS_BATT_NOINFO);
 
 
-    Serial.println(F("Joining"));
+    log_msg("Joining");
     LMIC_startJoining();
 }
 
