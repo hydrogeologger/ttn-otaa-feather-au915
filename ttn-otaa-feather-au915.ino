@@ -88,14 +88,14 @@ void os_getArtEui (u1_t* buf) { memcpy_P(buf, APPEUI, 8);}
 
 // End-device Identifier (u1_t[8]) in lsb format
 // This should also be in little endian format, see above.
-static const u1_t PROGMEM DEVEUI[8]= { 0x7E, 0xF2, 0x76, 0xBE, 0xBD, 0xA8, 0x2C, 0x89 };
+static const u1_t PROGMEM DEVEUI[8]= { 0xBC, 0xCB, 0x14, 0x10, 0x0F, 0xD6, 0x3F, 0x91 };
 void os_getDevEui (u1_t* buf) { memcpy_P(buf, DEVEUI, 8);}
 
 // Application Key (u1_t[16]) in msb format
 // This key should be in big endian format (or, since it is not really a
 // number but a block of memory, endianness does not really apply). In
 // practice, a key taken from the TTN console can be copied as-is.
-static const u1_t PROGMEM APPKEY[16] = { 0xE2, 0xB1, 0xF9, 0x97, 0xD3, 0x50, 0x39, 0x4A, 0xFA, 0xCF, 0x2D, 0x1B, 0xA3, 0x7F, 0x81, 0x3D };
+static const u1_t PROGMEM APPKEY[16] = { 0x51, 0xC1, 0x6D, 0xB4, 0xB2, 0xBC, 0xD5, 0xEC, 0x2F, 0x65, 0x5B, 0x58, 0xA9, 0xFD, 0x93, 0xB4 };
 void os_getDevKey (u1_t* buf) {  memcpy_P(buf, APPKEY, 16);}
 
 // EPOCH Time Defines
