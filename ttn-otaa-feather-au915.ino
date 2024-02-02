@@ -35,6 +35,7 @@
 #include <arduino_lmic.h>
 #include <hal/hal.h>
 #include <SPI.h>
+#include <RTCZero.h>
 
 // Schedule TX every this many seconds (might become longer due to duty
 // cycle limitations).
@@ -46,6 +47,8 @@ const unsigned TX_INTERVAL = 60;
 #define USE_SERIAL 1
 #define SERIAL_BLOCKING 1
 #define DEBUG 0
+
+#define TZ_OFFSET 10 // Timezone offset in hours
 
 /* Battery Configuration */
 // #define BATTERY_ADC_PIN A7
@@ -93,6 +96,7 @@ void os_getDevKey (u1_t* buf) {  memcpy_P(buf, APPKEY, 16);}
 #define GPS_EPOCH_OFFSET 315964800 // GPS Epoch offset in seconds
 #define LEAP_SECONDS_1980 19 // Leap seconds from 1970 to 1080
 #define LEAP_SECONDS_NOW 37
+#define HOURS_TO_SECONDS(hrs) (hrs * 60 * 60)
 
 // Payload to send to gateway
 static uint8_t payload[] = "Hello, world!";
@@ -151,6 +155,7 @@ const lmic_pinmap lmic_pins = {
 #endif /* BSP Target */
 
 static uint32_t userUTCTime; // Seconds since the UTC epoch
+RTCZero rtc; // Declare real time clock
 
 // A buffer for printing log messages.
 static constexpr int MAX_MSG = 256;
@@ -187,8 +192,11 @@ void PrintBinaryStrZeroPad(int value, int8_t num_bits, bool newline = false){
 // if the DeviceTimeReq is answered.
 void log_msg(const char *fmt, bool show_ticks=false, ...) {
 #if USE_SERIAL
-    // snprintf(msg, MAX_MSG, "%02d:%02d:%02d / ", rtc.getHours(), rtc.getMinutes(), rtc.getSeconds());
-    // serial.write(msg, strlen(msg));
+    snprintf(msg, MAX_MSG, "%02d:%02d:%02d / ",
+            rtc.getHours(),
+            rtc.getMinutes(),
+            rtc.getSeconds());
+    serial.write(msg, strlen(msg));
     if (show_ticks) {
         snprintf(msg, MAX_MSG, "%ld: ", os_getTime());
         serial.write(msg, strlen(msg));
@@ -242,8 +250,22 @@ void user_request_network_time_callback(void *pVoidUserUTCTime, int flagSuccess)
     uint32_t requestDelaySec = osticks2ms(ticksNow - ticksRequestSent) / 1000;
     *pUserUTCTime += requestDelaySec;
     // All that gets the sketch to somewhere near UTC.
-    log_msg("Epoch time set from Network");
     }
+
+    // Update the system time with the time read from the network
+    #if (TZ_OFFSET != 0)
+        rtc.setEpoch(*pUserUTCTime + HOURS_TO_SECONDS(TZ_OFFSET));
+    #else
+        rtc.setEpoch(*pUserUTCTime);
+    #endif /* (TZ_OFFSET != 0) */
+
+    log_msg("The current local time from network is: %02d/%02d/%02d %02d:%02d:%02d", false,
+            rtc.getYear(),
+            rtc.getMonth(),
+            rtc.getDay(),
+            rtc.getHours(),
+            rtc.getMinutes(),
+            rtc.getSeconds());
 }
 
 void printHex2(unsigned v) {
@@ -487,6 +509,8 @@ void setup() {
         #endif /* SERIAL_BLOCKING */
         log_msg("Starting");
     #endif /* USE_SERIAL */
+
+    rtc.begin(false); // Initialize RTC, Preserving clock time
 
     // LMIC init
     os_init();
