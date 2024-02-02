@@ -799,6 +799,20 @@ void loop() {
                 lpp.addBarometricPressure(1, bme280.getPressure() / 100.0); // hPa, 1 decimal place
                 lpp.addRelativeHumidity(1, bme280.getHumidity()); // %, no decimal place
 
+                uint8_t measurement_count = startSDI12Measurement('0');
+                if (measurement_count == 3) {
+                    float sdi_data[measurement_count];
+                    if (getSDI12Results('0', measurement_count, sdi_data)) {
+                        // Shift resolution for Cayenne Packet by 2 decimal places for
+                        // pressure and temperature
+                        // Barometric from Aquatroll in kPa, convert to hPa
+                        lpp.addBarometricPressure(2, sdi_data[0] * 10); // hPa
+                        // Decimal shift of temperature for precision
+                        lpp.addTemperature(2, sdi_data[1] * 100); // Degrees Celsius
+                        lpp.addConductivity(2, sdi_data[2]); // Salinity
+                    }
+                }
+
                 // Start job (sending automatically starts OTAA too if not yet joined)
                 os_setCallback(&sendjob, do_send);
                 state = STATE_LOW_POWER;
