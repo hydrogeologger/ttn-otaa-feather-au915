@@ -45,6 +45,7 @@ const unsigned TX_INTERVAL = 60;
 #define SERIAL_BAUD 9600
 #define USE_SERIAL 1
 #define SERIAL_BLOCKING 1
+#define DEBUG 0
 
 //
 // For normal use, we require that you edit the sketch to replace FILLMEIN
@@ -140,6 +141,30 @@ const lmic_pinmap lmic_pins = {
 static constexpr int MAX_MSG = 256;
 static char msg[MAX_MSG];
 
+#if DEBUG && USE_SERIAL
+static u2_t prev_opmode = OP_NONE;
+
+void PrintOpmode(uint16_t opmode, char sep = ',') {
+    serial.print(F("opmode="));
+    serial.print("0x");
+    serial.print(opmode, HEX);
+    if (sep != 0)
+        serial.print(sep);
+}
+
+void PrintBinaryStrZeroPad(int value, int8_t num_bits, bool newline = false){
+    //ZeroPadding = nth bit, e.g for a 16 bit number nth bit = 16
+    while(--num_bits >= 0){
+        if((value & (1 << num_bits)) > 0) {
+            serial.write('1');
+        } else {
+            serial.write('0');
+        }
+    }
+    if (newline) serial.write("\n");
+}
+#endif /* DEBUG && USE_SERIAL */
+
 // A printf-like function to print log messages prefixed by the current
 // LMIC tick value. Don't call it before os_init();
 //
@@ -214,6 +239,19 @@ void onEvent (ev_t ev) {
                         printHex2(nwkKey[i]);
                 }
                 serial.println();
+                serial.println("Uplink frequency channels:");
+                for (uint8_t i = 0; i <= 4; i++) {
+                    if (i < 4) {
+                        snprintf(msg, MAX_MSG,
+                                "\t0x%04X channel=%u-%u\n",
+                                LMIC.channelMap[i], i*16, (i+1)*16-1);
+                    } else {
+                        snprintf(msg, MAX_MSG,
+                                "\t0x%02X   channel=%u-%u\n",
+                                LMIC.channelMap[i], i*16, (i+1)*16-8-1);
+                    }
+                    serial.write(msg, strlen(msg));
+                }
               #endif /* USE_SERIAL */
             }
             // Disable link check validation (automatically enabled
@@ -237,27 +275,52 @@ void onEvent (ev_t ev) {
             break;
         case EV_TXCOMPLETE:
             log_msg("EV_TXCOMPLETE (includes waiting for RX windows)", true);
+            #if DEBUG && USE_SERIAL
+            {
+                u1_t sf = getSf(LMIC.rps) + 6; // 1 == SF7
+                u1_t bw = getBw(LMIC.rps);
+                u1_t cr = getCr(LMIC.rps);
+                snprintf(msg, MAX_MSG,
+                        "freq=%u.%u, DR%d(SF%d BW%d), CR=4/%d, IH=%d rps=%04x\n",
+                        LMIC.freq / 1000000,
+                        (LMIC.freq % 1000000) / 100000,
+                        LMIC.datarate,
+                        sf,
+                        bw == BW125 ? 125 : (bw == BW250 ? 250 : 500),
+                        cr == CR_4_5 ? 5 : (cr == CR_4_6 ? 6 : (cr == CR_4_7 ? 7 : 8)),
+                        getIh(LMIC.rps),
+                        LMIC.rps
+                );
+                serial.write(msg, strlen(msg));
+            }
+            #endif /* DEBUG && USE_SERIAL */
             if (LMIC.txrxFlags & TXRX_ACK) { log_msg("Received ack", true); }
-            if (LMIC.dataLen) {
-              if (LMIC.txrxFlags & TXRX_PORT) {
-                log_msg("FPort: %d, Received %d bytes of payload", false, \
-                        LMIC.frame[LMIC.dataBeg-1], LMIC.dataLen);
-              } else {
-                log_msg("Received %d bytes of payload", false, LMIC.dataLen);
-              }
-            } else if (LMIC.dataBeg) {
-            #if USE_SERIAL
+            #if DEBUG && USE_SERIAL
+            log_msg("adrAckReq: %d,  adrChanged: %d", false,
+                    LMIC.adrAckReq,
+                    LMIC.adrChanged);
+            if (LMIC.dataBeg) {
                 serial.print(F("MAC message received: "));
-                for (unsigned i = 0; i < LMIC.dataBeg; ++i) {
+                for (unsigned i = 0; i < LMIC.dataBeg + LMIC.dataLen; i++) {
+                    if (i == LMIC.dataBeg) serial.print(F(","));
                     serial.print(F(" "));
                     printHex2(LMIC.frame[i]);
                 }
                 serial.println();
-            #endif /* USE_SERIAL */
+                if (LMIC.dataLen) {
+                    if (LMIC.txrxFlags & TXRX_PORT) {
+                        log_msg("FPort: %d, Received %d bytes of payload", false, \
+                                LMIC.frame[LMIC.dataBeg-1], LMIC.dataLen);
+                    } else {
+                        log_msg("Received %d bytes of payload", false, LMIC.dataLen);
+                    }
+                    for (unsigned i = 0; i < LMIC.dataLen; i++) {
+                        serial.print(char(LMIC.frame[LMIC.dataBeg + i]));
+                    }
+                    serial.println();
+                }
             } /* LMIC.dataBeg */
-            log_msg("adrAckReq: %d,  adrChanged: %d", false,
-                    LMIC.adrAckReq,
-                    LMIC.adrChanged);
+            #endif /* DEBUG && USE_SERIAL */
             // Schedule next transmission
             // os_setTimedCallback(&sendjob, os_getTime()+sec2osticks(TX_INTERVAL), do_send);
             break;
@@ -287,6 +350,25 @@ void onEvent (ev_t ev) {
         */
         case EV_TXSTART:
             log_msg("EV_TXSTART", true);
+            #if DEBUG && USE_SERIAL
+            {
+                u1_t sf = getSf(LMIC.rps) + 6; // 1 == SF7
+                u1_t bw = getBw(LMIC.rps);
+                u1_t cr = getCr(LMIC.rps);
+                snprintf(msg, MAX_MSG,
+                        "freq=%u.%u, DR%d(SF%d BW%d), CR=4/%d, IH=%d rps=%04x\n",
+                        LMIC.freq / 1000000,
+                        (LMIC.freq % 1000000) / 100000,
+                        LMIC.datarate,
+                        sf,
+                        bw == BW125 ? 125 : (bw == BW250 ? 250 : 500),
+                        cr == CR_4_5 ? 5 : (cr == CR_4_6 ? 6 : (cr == CR_4_7 ? 7 : 8)),
+                        getIh(LMIC.rps),
+                        LMIC.rps
+                );
+                serial.write(msg, strlen(msg));
+            }
+            #endif /* DEBUG && USE_SERIAL */
             break;
         case EV_TXCANCELED:
             log_msg("EV_TXCANCELED", true);
@@ -369,6 +451,14 @@ void setup() {
 }
 
 void loop() {
+    #if DEBUG && USE_SERIAL
+    if (prev_opmode != LMIC.opmode) {
+        prev_opmode = LMIC.opmode;
+        PrintOpmode(LMIC.opmode);
+        serial.print(" ");
+        PrintBinaryStrZeroPad(LMIC.opmode, 16, true);
+    }
+    #endif /* DEBUG && USE_SERIAL */
     os_runloop_once();
 
     // Let radio do its thing before consider doing anything else. Prioritise TX/RX
