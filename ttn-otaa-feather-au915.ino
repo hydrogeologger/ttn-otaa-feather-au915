@@ -785,6 +785,21 @@ void loop() {
                     LMIC_setBatteryLevel(batteryLevelMCMD);
                     lpp.addAnalogInput(0, BATT_ADC_TO_VOLT(batteryADC)); // 2 decimal place
                 #endif /* BATTERY_ADC_PIN */
+
+                uint8_t measurement_count = startSDI12Measurement('0');
+                if (measurement_count == 3) {
+                    float sdi_data[measurement_count];
+                    if (getSDI12Results('0', measurement_count, sdi_data)) {
+                        // Shift resolution for Cayenne Packet by 2 decimal places for
+                        // pressure and temperature
+                        // Barometric from Aquatroll in kPa, convert to hPa
+                        lpp.addBarometricPressure(1, sdi_data[0] * 10); // hPa
+                        // Decimal shift of temperature for precision, 3 decimal places
+                        lpp.addTemperature(1, sdi_data[1] * 100); // Degrees Celsius
+                        lpp.addConductivity(1, sdi_data[2]); // Conductivity (uS/cm)
+                    }
+                }
+
                 // Start job (sending automatically starts OTAA too if not yet joined)
                 os_setCallback(&sendjob, do_send);
                 state = STATE_LOW_POWER;
