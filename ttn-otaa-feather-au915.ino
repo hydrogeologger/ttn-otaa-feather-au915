@@ -43,7 +43,7 @@
 
 // Schedule TX every this many seconds (might become longer due to duty
 // cycle limitations).
-const unsigned TX_INTERVAL = 60; // 1 hour = 60 * 60 = 3600
+const unsigned TX_INTERVAL = 1800; // 1 hour = 60 * 60 = 3600
 
 // Serial1 works with standby mode.
 #define serial Serial
@@ -339,9 +339,9 @@ uint8_t startSDI12Measurement(char address, uint8_t meas_type = -1) {
     } else {
         sprintf(command, "%cM!", address);
     }
-    #if USE_SERIAL
-    serial.println(command);
-    #endif /* USE_SERIAL */
+    // #if USE_SERIAL
+    // serial.println(command);
+    // #endif /* USE_SERIAL */
     mySDI12.clearBuffer();
     mySDI12.sendCommand(command);
     delay(100);
@@ -351,9 +351,9 @@ uint8_t startSDI12Measurement(char address, uint8_t meas_type = -1) {
     String sdi_response = mySDI12.readStringUntil('\n');
     mySDI12.clearBuffer();
     sdi_response.trim();
-    #if USE_SERIAL
-    serial.println(sdi_response);
-    #endif /* USE_SERIAL */
+    // #if USE_SERIAL
+    // serial.println(sdi_response);
+    // #endif /* USE_SERIAL */
 
     // get returned address
     // String address_sdi_response = sdi_response.substring(0, 1);
@@ -369,11 +369,11 @@ uint8_t startSDI12Measurement(char address, uint8_t meas_type = -1) {
         if (mySDI12.available() > 1) {
             c = mySDI12.read();
             if (c != address) { continue; }
-            #if USE_SERIAL
-                serial.print(millis() - timerStart);
-                serial.print(", ");
-                serial.println(c);
-            #endif /* USE_SERIAL */
+            // #if USE_SERIAL
+            //     serial.print(millis() - timerStart);
+            //     serial.print(", ");
+            //     serial.println(c);
+            // #endif /* USE_SERIAL */
             timerStart = millis();
             while ((millis() - timerStart) < 200) {} // wait for rest
             break;
@@ -391,9 +391,9 @@ bool getSDI12Results(char address, int expected_count, float *sdi_data) {
     while (received_count < expected_count && data_option <= 9) {
         // SDI-12 command to get data [address][D][dataOption][!]
         sprintf(command, "%cD%d!", address, data_option);
-        #if USE_SERIAL
-        serial.println(command);
-        #endif /* USE_SERIAL */
+        // #if USE_SERIAL
+        // serial.println(command);
+        // #endif /* USE_SERIAL */
         mySDI12.clearBuffer();
         mySDI12.sendCommand(command);
         delay(100);
@@ -412,30 +412,30 @@ bool getSDI12Results(char address, int expected_count, float *sdi_data) {
                 float result = mySDI12.parseFloat(SKIP_NONE);
                 sdi_data[received_count] = result;
                 if (result != -9999) { received_count++; }
-                #if USE_SERIAL
-                if (received_count < expected_count) {
-                    serial.print(result);
-                } else {
-                    serial.println(result);
-                }
-                #endif /* USE_SERIAL */
+                // #if USE_SERIAL
+                // if (received_count < expected_count) {
+                //     serial.print(result);
+                // } else {
+                //     serial.println(result);
+                // }
+                // #endif /* USE_SERIAL */
             } else if (c == '+') {
                 mySDI12.read();
-                #if USE_SERIAL
-                serial.print(", ");
-                #endif /* USE_SERIAL */
+                // #if USE_SERIAL
+                // serial.print(", ");
+                // #endif /* USE_SERIAL */
             } else {
                 mySDI12.read();
             }
             delay(10);  // 1 character ~ 7.5ms
         }
 
-        #if USE_SERIAL
-        if (received_count < expected_count) { serial.print(", "); }
-        #endif /* USE_SERIAL */
+        // #if USE_SERIAL
+        // if (received_count < expected_count) { serial.print(", "); }
+        // #endif /* USE_SERIAL */
         data_option++;
     }
-    
+
     mySDI12.clearBuffer();
     return received_count == expected_count;
 }
@@ -491,12 +491,26 @@ void onEvent (ev_t ev) {
                         printHex2(nwkKey[i]);
                 }
                 serial.println();
+                serial.println("Uplink frequency channels:");
+                for (uint8_t i = 0; i <= 4; i++) {
+                    if (i < 4) {
+                        snprintf(msg, MAX_MSG,
+                                "\t0x%04X channel=%u-%u\n",
+                                LMIC.channelMap[i], i*16, (i+1)*16-1);
+                    } else {
+                        snprintf(msg, MAX_MSG,
+                                "\t0x%02X   channel=%u-%u\n",
+                                LMIC.channelMap[i], i*16, (i+1)*16-8-1);
+                    }
+                    serial.write(msg, strlen(msg));
+                }
               #endif /* USE_SERIAL */
             }
             // Disable link check validation (automatically enabled
             // during join, but because slow data rates change max TX
 	        // size, we don't use it in this example.
-            LMIC_setLinkCheckMode(0);
+            // LMIC_setLinkCheckMode(0);
+            // LMIC_setAdrMode(1);
             break;
         /*
         || This event is defined but not used in the code. No
@@ -515,27 +529,35 @@ void onEvent (ev_t ev) {
             break;
         case EV_TXCOMPLETE:
             log_msg("EV_TXCOMPLETE (includes waiting for RX windows)", true);
-            if (LMIC.txrxFlags & TXRX_ACK) { log_msg("Received ack", true); }
-            if (LMIC.dataLen) {
-              if (LMIC.txrxFlags & TXRX_PORT) {
-                log_msg("FPort: %d, Received %d bytes of payload", false, \
-                        LMIC.frame[LMIC.dataBeg-1], LMIC.dataLen);
-              } else {
-                log_msg("Received %d bytes of payload", false, LMIC.dataLen);
-              }
-            } else if (LMIC.dataBeg) {
             #if USE_SERIAL
-                serial.print(F("MAC message received: "));
-                for (unsigned i = 0; i < LMIC.dataBeg; ++i) {
-                    serial.print(F(" "));
-                    printHex2(LMIC.frame[i]);
+            if (LMIC.txrxFlags & TXRX_ACK) { log_msg("Confirmed up frame ack", true); }
+            if (LMIC.dataBeg) {
+                if (LMIC.dataLen) {
+                    if (LMIC.txrxFlags & TXRX_PORT) {
+                        log_msg("FPort: %d, Received %d bytes of payload", false, \
+                        LMIC.frame[LMIC.dataBeg-1], LMIC.dataLen);
+                    } else {
+                        log_msg("Received %d bytes of payload", false, LMIC.dataLen);
+                    }
+                } else {
+                    serial.print(F("MAC message received: "));
                 }
-                serial.println();
-            #endif /* USE_SERIAL */
+                for (unsigned i = 0; i < LMIC.dataBeg; ++i) {
+                    printHex2(LMIC.frame[i]);
+                    if (i < LMIC.dataBeg - 1) {
+                        serial.print(F(" "));
+                    } else {
+                        serial.println();
+                    }
+                }
             } /* LMIC.dataBeg */
-            log_msg("adrAckReq: %d,  adrChanged: %d", false,
-                    LMIC.adrAckReq, 
-                    LMIC.adrChanged);
+            if (LMIC.adrAckReq != LINK_CHECK_OFF || LMIC.adrEnabled) {
+                snprintf(msg, MAX_MSG, "adrAckReq: %d,  adrChanged: %d\n",
+                        LMIC.adrAckReq,
+                        LMIC.adrChanged);
+                serial.write(msg, strlen(msg));
+            }
+            #endif /* USE_SERIAL */
             // Schedule next transmission
             // os_setTimedCallback(&sendjob, os_getTime()+sec2osticks(TX_INTERVAL), do_send);
             break;
@@ -565,6 +587,23 @@ void onEvent (ev_t ev) {
         */
         case EV_TXSTART:
             log_msg("EV_TXSTART", true);
+            #ifdef USE_SERIAL
+            {
+            u1_t sf = getSf(LMIC.rps) + 6; // 1 == SF7
+            u1_t bw = getBw(LMIC.rps);
+            u1_t cr = getCr(LMIC.rps);
+            snprintf(msg, MAX_MSG,
+                    "freq=%u.%u (%lu), DR=%d (SF%d-BW%d), CR=4/%d, IH=%d " \
+                    "rps=%04x\n",
+                    LMIC.freq / 1000000, (LMIC.freq % 1000000) / 100000, LMIC.freq,
+                    LMIC.datarate, sf,
+                    bw == BW125 ? 125 : (bw == BW250 ? 250 : 500),
+                    cr == CR_4_5 ? 5 : (cr == CR_4_6 ? 6 : (cr == CR_4_7 ? 7 : 8)),
+                    getIh(LMIC.rps), LMIC.rps
+            );
+            serial.write(msg, strlen(msg));
+            }
+            #endif /* USE_SERIAL */
             break;
         case EV_TXCANCELED:
             log_msg("EV_TXCANCELED", true);
@@ -640,10 +679,13 @@ void setup() {
     // Reset the MAC state. Session and pending data transfers will be discarded.
     LMIC_reset();
     // Disable link-check mode and ADR, because ADR tends to complicate testing.
-    LMIC_setLinkCheckMode(0);
+    LMIC_setLinkCheckMode(1); // LinkADRReq
+    // Enable or disable data rate adaptation. Should be turned off if the device is mobile.
+    LMIC_setAdrMode(1);
     // Set the data rate to Spreading Factor 7.  This is the fastest supported rate for 125 kHz channels, and it
     // minimizes air time and battery power. Set the transmission power to 14 dBi (25 mW).
-    LMIC_setDrTxpow(DR_SF7,14);
+    // LMIC_setDrTxpow(DR_SF7,14);
+    LMIC_setDrTxpow(LMICbandplan_getInitialDrJoin(), 14);
     // in the AU, with TTN, it saves join time if we start on subband 1 (channels 8-15). This will
     // get overridden after the join by parameters from the network. If working with other
     // networks or in other regions, this will need to be changed.
@@ -652,10 +694,24 @@ void setup() {
     LMIC_setBatteryLevel(MCMD_DEVS_BATT_NOINFO);
 
 
-    log_msg("Joining");
     LMIC_startJoining();
     LMIC_requestNetworkTime(user_request_network_time_callback, &userUTCTime);
 }
+
+void writeZeroPadBinaryString(int value, int8_t num_bits, bool newline = false){
+//ZeroPadding = nth bit, e.g for a 16 bit number nth bit = 16
+    while(--num_bits >= 0){
+        if((value & (1 << num_bits)) > 0) {
+            serial.write('1');
+        } else {
+            serial.write('0');
+        }
+    }
+    if (newline) serial.write("\n");
+}
+
+static unsigned long sleep_time = 0;
+static uint16_t m_opmode = OP_NONE;
 
 void loop() {
     #if DEBUG && USE_SERIAL
@@ -760,6 +816,7 @@ void loop() {
                 // Start job (sending automatically starts OTAA too if not yet joined)
                 os_setCallback(&sendjob, do_send);
                 state = STATE_LOW_POWER;
+                sleep_time = millis();
             }
             break;
     } /* Switch(state) */
