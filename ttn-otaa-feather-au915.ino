@@ -37,6 +37,8 @@
 #include <SPI.h>
 #include <RTCZero.h>
 #include <CayenneLPP.h>
+#include <Wire.h>
+#include <Bme280.h>
 
 // Schedule TX every this many seconds (might become longer due to duty
 // cycle limitations).
@@ -192,6 +194,8 @@ void PrintBinaryStrZeroPad(int value, int8_t num_bits, bool newline = false){
     if (newline) serial.write("\n");
 }
 #endif /* DEBUG && USE_SERIAL */
+
+Bme280TwoWire bme280;
 
 // A printf-like function to print log messages prefixed by the current
 // LMIC tick value. Don't call it before os_init();
@@ -566,6 +570,10 @@ void setup() {
     #endif /* USE_SERIAL */
 
     rtc.begin(false); // Initialize RTC, Preserving clock time
+    Wire.begin(); // join i2c bus (address optional for master)
+
+    bme280.begin(Bme280TwoWireAddress::Secondary);
+    bme280.setSettings(Bme280Settings::weatherMonitoring());
 
     // LMIC init
     os_init();
@@ -670,6 +678,12 @@ void loop() {
                     LMIC_setBatteryLevel(batteryLevelMCMD);
                     lpp.addAnalogInput(0, BATT_ADC_TO_VOLT(batteryADC)); // 2 decimal place
                 #endif /* BATTERY_ADC_PIN */
+
+                bme280.wakeUpForced(); // set mode to forced
+                lpp.addTemperature(1, bme280.getTemperature()); // Degrees Celsius , 1 decimal place
+                lpp.addBarometricPressure(1, bme280.getPressure() / 100.0); // hPa, 1 decimal place
+                lpp.addRelativeHumidity(1, bme280.getHumidity()); // %, no decimal place
+
                 // Start job (sending automatically starts OTAA too if not yet joined)
                 os_setCallback(&sendjob, do_send);
                 state = STATE_LOW_POWER;
