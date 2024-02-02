@@ -154,6 +154,11 @@ const lmic_pinmap lmic_pins = {
 # error "Unknown target"
 #endif /* BSP Target */
 
+// LMIC Device State
+#define STATE_LOW_POWER 0
+#define STATE_IDLE 1
+static uint8_t state = STATE_IDLE;
+
 static uint32_t userUTCTime; // Seconds since the UTC epoch
 RTCZero rtc; // Declare real time clock
 
@@ -516,8 +521,8 @@ void do_send(osjob_t* j){
     // rather than related to the end of an uplink/downlink.
     // Clear any current scheduled copy of the job because there should never be
     // more than one.
-    os_clearCallback(&sendjob);
-    os_setTimedCallback(&sendjob, os_getTime()+sec2osticks(TX_INTERVAL), do_send);
+    // os_clearCallback(&sendjob);
+    // os_setTimedCallback(&sendjob, os_getTime()+sec2osticks(TX_INTERVAL), do_send);
 
     // Check if there is not a current TX/RX job running
     if (LMIC.opmode & OP_TXRXPEND) {
@@ -595,28 +600,42 @@ void loop() {
     // Let radio do its thing before consider doing anything else. Prioritise TX/RX
     if (LMIC.opmode & (OP_POLL | OP_TXDATA | OP_TXRXPEND)) { return; }
 
-
-    if (!os_queryTimeCriticalJobs(sec2osticks(TX_INTERVAL))) {
-        #ifdef BATTERY_ADC_PIN
-            uint16_t batteryADC = analogRead(BATTERY_ADC_PIN);
-            long batteryLevelMCMD = map(BATT_ADC_TO_INT_SHIFT(batteryADC),
-                    BATTERY_MAP_VAL_MIN, BATTERY_MAP_VAL_MAX,
-                    MCMD_DEVS_BATT_MIN, MCMD_DEVS_BATT_MAX);
-            if (batteryLevelMCMD > MCMD_DEVS_BATT_MAX) {
-                batteryLevelMCMD = MCMD_DEVS_BATT_MAX;
-            } else if (batteryLevelMCMD < MCMD_DEVS_BATT_MIN) {
-                batteryLevelMCMD = MCMD_DEVS_BATT_MIN;
+    switch (state) {
+        case STATE_LOW_POWER: {
+            log_msg("State: LOW POWER");
+            if (os_queryTimeCriticalJobs(sec2osticks(TX_INTERVAL))) {
+                state = STATE_IDLE;
+                break;
             }
-            #if USE_SERIAL
-                snprintf(msg, MAX_MSG, "Battery: ADC=%d, Volt=%f, LMIC_vBat=%d\n",
-                        batteryADC,
-                        BATT_ADC_TO_INT_SHIFT(batteryADC),
-                        batteryLevelMCMD);
-                serial.write(msg);
-            #endif /* USE_SERIAL */
-            LMIC_setBatteryLevel(batteryLevelMCMD);
-        #endif /* BATTERY_ADC_PIN */
-        // Start job (sending automatically starts OTAA too if not yet joined)
-        os_setCallback(&sendjob, do_send);
-    }
+            break;
+        }
+        case STATE_IDLE:
+            log_msg("State: Idle");
+            if (!os_queryTimeCriticalJobs(sec2osticks(TX_INTERVAL))) {
+                log_msg("No scheduled jobs, scheduling do_sent() to run now.");
+                #ifdef BATTERY_ADC_PIN
+                    uint16_t batteryADC = analogRead(BATTERY_ADC_PIN);
+                    long batteryLevelMCMD = map(BATT_ADC_TO_INT_SHIFT(batteryADC),
+                            BATTERY_MAP_VAL_MIN, BATTERY_MAP_VAL_MAX,
+                            MCMD_DEVS_BATT_MIN, MCMD_DEVS_BATT_MAX);
+                    if (batteryLevelMCMD > MCMD_DEVS_BATT_MAX) {
+                        batteryLevelMCMD = MCMD_DEVS_BATT_MAX;
+                    } else if (batteryLevelMCMD < MCMD_DEVS_BATT_MIN) {
+                        batteryLevelMCMD = MCMD_DEVS_BATT_MIN;
+                    }
+                    #if USE_SERIAL
+                        snprintf(msg, MAX_MSG, "Battery: ADC=%d, Volt=%f, LMIC_vBat=%d\n",
+                                batteryADC,
+                                BATT_ADC_TO_INT_SHIFT(batteryADC),
+                                batteryLevelMCMD);
+                        serial.write(msg);
+                    #endif /* USE_SERIAL */
+                    LMIC_setBatteryLevel(batteryLevelMCMD);
+                #endif /* BATTERY_ADC_PIN */
+                // Start job (sending automatically starts OTAA too if not yet joined)
+                os_setCallback(&sendjob, do_send);
+                state = STATE_LOW_POWER;
+            }
+            break;
+    } /* Switch(state) */
 }
