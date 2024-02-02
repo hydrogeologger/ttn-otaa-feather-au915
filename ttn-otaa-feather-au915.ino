@@ -45,6 +45,7 @@ const unsigned TX_INTERVAL = 60;
 #define SERIAL_BAUD 9600
 #define USE_SERIAL 1
 #define SERIAL_BLOCKING 1
+#define DEBUG 0
 
 //
 // For normal use, we require that you edit the sketch to replace FILLMEIN
@@ -139,6 +140,31 @@ const lmic_pinmap lmic_pins = {
 // A buffer for printing log messages.
 static constexpr int MAX_MSG = 256;
 static char msg[MAX_MSG];
+
+#if DEBUG && USE_SERIAL
+static u2_t prev_opmode = OP_NONE;
+
+void PrintOpmode(uint16_t opmode, char sep = ',') {
+    serial.print(F("opmode="));
+    serial.print("0x");
+    serial.print(opmode, HEX);
+    if (sep != 0)
+        serial.print(sep);
+}
+
+void BinaryStrZeroPad(int number, char zero_padding) {
+    // zero_padding = nth bit, e.g for a 16 bit number nth bit = 15
+    signed char i = zero_padding;
+
+    while (i >= 0) {
+        if ((number & (1 << i)) > 0)
+            serial.write('1');
+        else
+            serial.write('0');
+        --i;
+    }
+}
+#endif /* DEBUG && USE_SERIAL */
 
 // A printf-like function to print log messages prefixed by the current
 // LMIC tick value. Don't call it before os_init();
@@ -368,6 +394,15 @@ void setup() {
 }
 
 void loop() {
+    #if DEBUG && USE_SERIAL
+    if (prev_opmode != LMIC.opmode) {
+        prev_opmode = LMIC.opmode;
+        PrintOpmode(LMIC.opmode);
+        serial.print(" ");
+        BinaryStrZeroPad(LMIC.opmode, 15);
+        serial.println();
+    }
+    #endif /* DEBUG && USE_SERIAL */
     os_runloop_once();
 
     // Let radio do its thing before consider doing anything else. Prioritise TX/RX
