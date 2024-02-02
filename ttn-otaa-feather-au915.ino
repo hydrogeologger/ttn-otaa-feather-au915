@@ -37,6 +37,7 @@
 #include <SPI.h>
 #include <RTCZero.h>
 #include <CayenneLPP.h>
+#include <SDI12.h> // Include SDI-12 master
 
 // Schedule TX every this many seconds (might become longer due to duty
 // cycle limitations).
@@ -58,6 +59,10 @@ const unsigned TX_INTERVAL = 60; // 1 hour = 60 * 60 = 3600
 #define ADC_REF_VOLTAGE 3.3 // 3.3V
 #define BATT_ADC_TO_VOLT(adcVal) (adcVal * 2 * ADC_REF_VOLTAGE / 1024)
 #define BATT_ADC_TO_INT_SHIFT(adcVal) (BATT_ADC_TO_VOLT(adcVal) * 100)
+
+/* SDI-12 Configuration */
+#define SDI12_DATA_PIN 11
+SDI12 mySDI12(SDI12_DATA_PIN);
 
 //
 // For normal use, we require that you edit the sketch to replace FILLMEIN
@@ -321,6 +326,115 @@ void set_delta_alarm(uint32_t delta_seconds) {
     rtc.enableAlarm(RTCZero::MATCH_HHMMSS);
 }
 
+uint8_t startSDI12Measurement(char address, uint8_t meas_type = -1) {
+    // SDI-12 measurement command format  [address]['M'][!] or [address]['M'][type][!]
+    char command[4+1];
+    if (meas_type > 0 && meas_type <= 9) {
+        sprintf(command, "%cM%d!", address, meas_type);
+    } else {
+        sprintf(command, "%cM!", address);
+    }
+    #if USE_SERIAL
+    serial.println(command);
+    #endif /* USE_SERIAL */
+    mySDI12.clearBuffer();
+    mySDI12.sendCommand(command);
+    delay(100);
+
+    // wait for acknowlegement with format [address][ttt (3 char, seconds)][number of
+    // measurments available, 0-9]
+    String sdi_response = mySDI12.readStringUntil('\n');
+    mySDI12.clearBuffer();
+    sdi_response.trim();
+    #if USE_SERIAL
+    serial.println(sdi_response);
+    #endif /* USE_SERIAL */
+
+    // get returned address
+    // String address_sdi_response = sdi_response.substring(0, 1);
+    // find out how long we have to wait (in seconds).
+    uint8_t wait = sdi_response.substring(1, 4).toInt();
+    // Set up the number of results to expect
+    int8_t num_data_len = sdi_response.substring(4).toInt();
+
+    char c = 0;
+    unsigned long timerStart = millis();
+    while ((millis() - timerStart) < (1000 * (wait + 1))) {
+        // sensor can interrupt us to let us know it is done early
+        if (mySDI12.available() > 1) {
+            c = mySDI12.read();
+            if (c != address) { continue; }
+            #if USE_SERIAL
+                serial.print(millis() - timerStart);
+                serial.print(", ");
+                serial.println(c);
+            #endif /* USE_SERIAL */
+            timerStart = millis();
+            while ((millis() - timerStart) < 200) {} // wait for rest
+            break;
+        }
+    }
+
+    if (num_data_len > 0) { return num_data_len; }
+    return 0;
+}
+
+bool getSDI12Results(char address, int expected_count, float *sdi_data) {
+    uint8_t received_count = 0;
+    uint8_t data_option      = 0;
+    char command[4+1];
+    while (received_count < expected_count && data_option <= 9) {
+        // SDI-12 command to get data [address][D][dataOption][!]
+        sprintf(command, "%cD%d!", address, data_option);
+        #if USE_SERIAL
+        serial.println(command);
+        #endif /* USE_SERIAL */
+        mySDI12.clearBuffer();
+        mySDI12.sendCommand(command);
+        delay(100);
+
+        // Wait for a bit for data to catchup
+        uint32_t start = millis();
+        while (mySDI12.available() < 3 && (millis() - start) < 1500) {}
+
+        mySDI12.read();           // ignore the repeated SDI12 address
+        char c = mySDI12.peek();  // check if there's a '+' and toss if so
+        if (c == '+') { mySDI12.read(); }
+
+        while (mySDI12.available()) {
+            c = mySDI12.peek();
+            if (c == '-' || (c >= '0' && c <= '9') || c == '.') {
+                float result = mySDI12.parseFloat(SKIP_NONE);
+                sdi_data[received_count] = result;
+                if (result != -9999) { received_count++; }
+                #if USE_SERIAL
+                if (received_count < expected_count) {
+                    serial.print(result);
+                } else {
+                    serial.println(result);
+                }
+                #endif /* USE_SERIAL */
+            } else if (c == '+') {
+                mySDI12.read();
+                #if USE_SERIAL
+                serial.print(", ");
+                #endif /* USE_SERIAL */
+            } else {
+                mySDI12.read();
+            }
+            delay(10);  // 1 character ~ 7.5ms
+        }
+
+        #if USE_SERIAL
+        if (received_count < expected_count) { serial.print(", "); }
+        #endif /* USE_SERIAL */
+        data_option++;
+    }
+    
+    mySDI12.clearBuffer();
+    return received_count == expected_count;
+}
+
 void printHex2(unsigned v) {
     v &= 0xff;
     if (v < 16)
@@ -556,6 +670,7 @@ void setup() {
         pinMode(BATTERY_ADC_PIN, INPUT);
     #endif
     pinMode(LED_BUILTIN, OUTPUT);
+    mySDI12.begin();
     delay(5000);
     #if USE_SERIAL
         serial.begin(SERIAL_BAUD);
