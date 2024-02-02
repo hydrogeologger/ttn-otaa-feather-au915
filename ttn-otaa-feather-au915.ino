@@ -41,19 +41,19 @@
 
 // Schedule TX every this many seconds (might become longer due to duty
 // cycle limitations).
-const unsigned TX_INTERVAL = 60; // 1 hour = 60 * 60 = 3600
+const unsigned TX_INTERVAL = 1800; // 1 hour = 60 * 60 = 3600
 
 // Serial1 works with standby mode.
 #define serial Serial
 #define SERIAL_BAUD 9600
-#define USE_SERIAL 1
-#define SERIAL_BLOCKING 1
+#define USE_SERIAL 0
+#define SERIAL_BLOCKING 0
 #define DEBUG 0
 
 #define TZ_OFFSET 10 // Timezone offset in hours
 
 /* Battery Configuration */
-// #define BATTERY_ADC_PIN A7
+#define BATTERY_ADC_PIN A7
 #define BATTERY_MAP_VAL_MIN 3.09 * 100 // 3.09V at 0%, 3.2V at 10%
 #define BATTERY_MAP_VAL_MAX 4.2 * 100 // 4.2V
 #define ADC_REF_VOLTAGE 3.3 // 3.3V
@@ -687,12 +687,13 @@ void setup() {
     // Reset the MAC state. Session and pending data transfers will be discarded.
     LMIC_reset();
     // Disable link-check mode and ADR, because ADR tends to complicate testing.
-    LMIC_setLinkCheckMode(0); // LinkADRReq
+    LMIC_setLinkCheckMode(1); // LinkADRReq
     // Enable or disable data rate adaptation. Should be turned off if the device is mobile.
-    LMIC_setAdrMode(0);
+    LMIC_setAdrMode(1);
     // Set the data rate to Spreading Factor 7.  This is the fastest supported rate for 125 kHz channels, and it
     // minimizes air time and battery power. Set the transmission power to 14 dBi (25 mW).
-    LMIC_setDrTxpow(DR_SF7,14);
+    // LMIC_setDrTxpow(DR_SF7, 14);
+    LMIC_setDrTxpow(LMICbandplan_getInitialDrJoin(), 14);
     // in the AU, with TTN, it saves join time if we start on subband 1 (channels 8-15). This will
     // get overridden after the join by parameters from the network. If working with other
     // networks or in other regions, this will need to be changed.
@@ -783,7 +784,7 @@ void loop() {
                         serial.write(msg);
                     #endif /* USE_SERIAL */
                     LMIC_setBatteryLevel(batteryLevelMCMD);
-                    lpp.addAnalogInput(0, BATT_ADC_TO_VOLT(batteryADC)); // 2 decimal place
+                    lpp.addVoltage(0, BATT_ADC_TO_VOLT(batteryADC)); // 2 decimal place
                 #endif /* BATTERY_ADC_PIN */
 
                 uint8_t measurement_count = startSDI12Measurement('0');
