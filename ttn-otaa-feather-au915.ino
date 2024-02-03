@@ -45,7 +45,7 @@ const unsigned TX_INTERVAL = 60;
 #define serial Serial
 #define SERIAL_BAUD 9600
 #define USE_SERIAL 1
-#define SERIAL_BLOCKING 1
+#define SERIAL_BLOCKING 0
 #define DEBUG 0
 
 #define TZ_OFFSET 10 // Timezone offset in hours
@@ -115,7 +115,7 @@ const lmic_pinmap lmic_pins = {
     .nss = 8,
     .rxtx = LMIC_UNUSED_PIN,
     .rst = 4,
-    .dio = {3, 6, LMIC_UNUSED_PIN},
+    .dio = {3, 10, LMIC_UNUSED_PIN},
     .rxtx_rx_active = 0,
     .rssi_cal = 8,              // LBT cal for the Adafruit Feather M0 LoRa, in dB
     .spi_freq = 8000000,
@@ -572,7 +572,8 @@ void setup() {
     LMIC_setAdrMode(0);
     // Set the data rate to Spreading Factor 7.  This is the fastest supported rate for 125 kHz channels, and it
     // minimizes air time and battery power. Set the transmission power to 14 dBi (25 mW).
-    LMIC_setDrTxpow(DR_SF7,14);
+    // LMIC_setDrTxpow(DR_SF7,14);
+    LMIC_setDrTxpow(LMICbandplan_getInitialDrJoin(), 14);
     // in the AU, with TTN, it saves join time if we start on subband 1 (channels 8-15). This will
     // get overridden after the join by parameters from the network. If working with other
     // networks or in other regions, this will need to be changed.
