@@ -36,6 +36,9 @@
 #include <hal/hal.h>
 #include <SPI.h>
 #include <RTCZero.h>
+#include <Wire.h>
+#include <Adafruit_GFX.h>
+#include <Adafruit_SH110X.h>
 
 // Schedule TX every this many seconds (might become longer due to duty
 // cycle limitations).
@@ -57,6 +60,35 @@ const unsigned TX_INTERVAL = 60;
 #define ADC_REF_VOLTAGE 3.3 // 3.3V
 #define BATT_ADC_TO_VOLT(adcVal) (adcVal * 2 * ADC_REF_VOLTAGE / 1024)
 #define BATT_ADC_TO_INT_SHIFT(adcVal) (BATT_ADC_TO_VOLT(adcVal) * 100)
+
+Adafruit_SH1107 display = Adafruit_SH1107(64, 128, &Wire);
+
+// OLED FeatherWing buttons map to different pins depending on board:
+#if defined(ESP8266)
+  #define BUTTON_A  0
+  #define BUTTON_B 16
+  #define BUTTON_C  2
+#elif defined(ESP32) && !defined(ARDUINO_ADAFRUIT_FEATHER_ESP32S2)
+  #define BUTTON_A 15
+  #define BUTTON_B 32
+  #define BUTTON_C 14
+#elif defined(ARDUINO_STM32_FEATHER)
+  #define BUTTON_A PA15
+  #define BUTTON_B PC7
+  #define BUTTON_C PC5
+#elif defined(TEENSYDUINO)
+  #define BUTTON_A  4
+  #define BUTTON_B  3
+  #define BUTTON_C  8
+#elif defined(ARDUINO_NRF52832_FEATHER)
+  #define BUTTON_A 31
+  #define BUTTON_B 30
+  #define BUTTON_C 27
+#else // 32u4, M0, M4, nrf52840, esp32-s2 and 328p
+  #define BUTTON_A  9
+  #define BUTTON_B  6
+  #define BUTTON_C  5
+#endif
 
 //
 // For normal use, we require that you edit the sketch to replace FILLMEIN
@@ -514,6 +546,7 @@ void onEvent (ev_t ev) {
             log_msg("Unknown event: %u", true, (unsigned) ev);
             break;
     }
+    oledRedraw(ev);
 }
 
 void do_send(osjob_t* j){
@@ -547,6 +580,118 @@ void do_send(osjob_t* j){
     // Next TX is scheduled after TX_COMPLETE event.
 }
 
+static bool joined = false;
+int lastButtonCState = HIGH;  // the previous state from the input pin
+
+void oledRedraw(ev_t ev) {
+    display.clearDisplay();
+    display.display();
+    display.setCursor(0,0);
+
+    snprintf(msg, MAX_MSG, "%02d:%02d:%02d %c: %d\n",
+            rtc.getHours(),
+            rtc.getMinutes(),
+            rtc.getSeconds(),
+            joined ? 'Y' : 'N',
+            LMIC.txCnt
+    );
+    display.write(msg, strlen(msg));
+
+    switch(ev) {
+        case EV_SCAN_TIMEOUT:
+            display.print("SCAN_TIMEOUT");
+            break;
+        case EV_BEACON_FOUND:
+            display.print("BEACON_FOUND");
+            break;
+        case EV_BEACON_MISSED:
+            display.print("BEACON_MISSED");
+            break;
+        case EV_BEACON_TRACKED:
+            display.print("BEACON_TRACKED");
+            break;
+        case EV_JOINING:
+            display.print("JOINING");
+            break;
+        case EV_JOINED:
+            display.print("JOINED");
+            joined = true;
+            break;
+        case EV_JOIN_FAILED:
+            display.print("JOIN_FAILED");
+            break;
+        case EV_REJOIN_FAILED:
+            display.print("REJOIN_FAILED");
+            joined = false;
+            break;
+        case EV_TXCOMPLETE:
+            display.print("TXCOMPLETE");
+            break;
+        case EV_LOST_TSYNC:
+            display.print("LOST_TSYNC");
+            break;
+        case EV_RESET:
+            display.print("RESET");
+            break;
+        case EV_RXCOMPLETE:
+            // data received in ping slot
+            display.print("RXCOMPLETE");
+            break;
+        case EV_LINK_DEAD:
+            display.print("LINK_DEAD");
+            break;
+        case EV_LINK_ALIVE:
+            display.print("LINK_ALIVE");
+            break;
+        case EV_TXSTART:
+            display.print("TXSTART");
+            break;
+        case EV_TXCANCELED:
+            display.print("TXCANCELED");
+            break;
+        case EV_RXSTART:
+            /* do not print anything -- it wrecks timing */
+            break;
+        case EV_JOIN_TXCOMPLETE:
+            display.print("NO_JoinAccept");
+            break;
+        default:
+            display.print("UNK_");
+            display.print(ev);
+            break;
+    }
+    display.println();
+
+    u1_t sf = getSf(LMIC.rps) + 6; // 1 == SF7
+    u1_t bw = getBw(LMIC.rps);
+    u1_t cr = getCr(LMIC.rps);
+    snprintf(msg, MAX_MSG,
+            "%u.%u, DR%d-SF%d BW%d\n",
+            LMIC.freq / 1000000,
+            (LMIC.freq % 1000000) / 100000,
+            LMIC.datarate,
+            sf,
+            bw == BW125 ? 125 : (bw == BW250 ? 250 : 500)
+    );
+    display.write(msg, strlen(msg));
+    snprintf(msg, MAX_MSG,
+            "CR=4/%d, IH=%d rps=%04x\n",
+            cr == CR_4_5 ? 5 : (cr == CR_4_6 ? 6 : (cr == CR_4_7 ? 7 : 8)),
+            getIh(LMIC.rps),
+            LMIC.rps
+    );
+    display.write(msg, strlen(msg));
+
+    snprintf(msg, MAX_MSG,
+            "rssi:%d snr:%d\n",
+            LMIC.rssi,
+            LMIC.snr
+    );
+    display.write(msg, strlen(msg));
+
+    display.display();
+}
+
 void setup() {
     #ifdef BATTERY_ADC_PIN
         pinMode(BATTERY_ADC_PIN, INPUT);
@@ -559,6 +704,29 @@ void setup() {
         #endif /* SERIAL_BLOCKING */
         log_msg("Starting");
     #endif /* USE_SERIAL */
+
+    display.begin(0x3C, true); // Address 0x3C default
+
+    // Show image buffer on the display hardware.
+    // Since the buffer is intialized with an Adafruit splashscreen
+    // internally, this will display the splashscreen.
+    display.display();
+    delay(1000);
+
+    // Clear the buffer.
+    display.clearDisplay();
+    display.display();
+
+    // Serial.println("Button test");
+
+    pinMode(BUTTON_A, INPUT_PULLUP); // Also used for Battery Test
+    pinMode(BUTTON_B, INPUT_PULLUP);
+    pinMode(BUTTON_C, INPUT_PULLUP);
+
+    display.setRotation(3);
+    // text display tests
+    display.setTextSize(1);
+    display.setTextColor(SH110X_WHITE);
 
     rtc.begin(false); // Initialize RTC, Preserving clock time
 
@@ -634,8 +802,21 @@ void loop() {
                     LMIC_setBatteryLevel(batteryLevelMCMD);
                 #endif /* BATTERY_ADC_PIN */
                 // Start job (sending automatically starts OTAA too if not yet joined)
-                os_setCallback(&sendjob, do_send);
-                state = STATE_LOW_POWER;
+                int input_button_c = digitalRead(BUTTON_C);
+                int input_button_b = digitalRead(BUTTON_B);
+                if ( !input_button_c && lastButtonCState) {
+                    lastButtonCState = input_button_c;
+                    os_setCallback(&sendjob, do_send);
+                    display.println("do_send");
+                    display.display();
+                } else if ( !input_button_b && lastButtonCState) {
+                    LMIC_unjoinAndRejoin();
+                    display.println("do_rejoin");
+                    display.display();
+                } else if ( input_button_c && input_button_b && !lastButtonCState) {
+                    lastButtonCState = input_button_c;
+                }
+                // state = STATE_LOW_POWER;
             }
             break;
     } /* Switch(state) */
