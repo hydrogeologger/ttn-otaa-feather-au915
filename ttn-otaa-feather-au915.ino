@@ -186,7 +186,7 @@ void onEvent (ev_t ev) {
             // Disable link check validation (automatically enabled
             // during join, but because slow data rates change max TX
 	        // size, we don't use it in this example.
-            LMIC_setLinkCheckMode(0);
+            // LMIC_setLinkCheckMode(0);
             break;
         /*
         || This event is defined but not used in the code. No
@@ -314,7 +314,9 @@ void setup() {
     // Reset the MAC state. Session and pending data transfers will be discarded.
     LMIC_reset();
     // Disable link-check mode and ADR, because ADR tends to complicate testing.
-    LMIC_setLinkCheckMode(0);
+    LMIC_setLinkCheckMode(0); // LinkADRReq
+    // Enable or disable data rate adaptation. Should be turned off if the device is mobile.
+    LMIC_setAdrMode(0);
     // Set the data rate to Spreading Factor 7.  This is the fastest supported rate for 125 kHz channels, and it
     // minimizes air time and battery power. Set the transmission power to 14 dBi (25 mW).
     LMIC_setDrTxpow(DR_SF7,14);
