@@ -49,7 +49,7 @@ const unsigned TX_INTERVAL = 60;
 #define SERIAL_BAUD 9600
 #define USE_SERIAL 1
 #define SERIAL_BLOCKING 0
-#define DEBUG 0
+#define DEBUG 1
 
 #define TZ_OFFSET 10 // Timezone offset in hours
 
@@ -582,6 +582,7 @@ void do_send(osjob_t* j){
 
 static bool joined = false;
 int lastButtonCState = HIGH;  // the previous state from the input pin
+static uint8_t lastState = STATE_IDLE;
 
 void oledRedraw(ev_t ev) {
     display.clearDisplay();
@@ -771,7 +772,8 @@ void loop() {
 
     switch (state) {
         case STATE_LOW_POWER: {
-            log_msg("State: LOW POWER");
+            if (lastState != state) log_msg("State: LOW POWER");
+            lastState = state;
             if (os_queryTimeCriticalJobs(sec2osticks(TX_INTERVAL))) {
                 state = STATE_IDLE;
                 break;
@@ -779,42 +781,45 @@ void loop() {
             break;
         }
         case STATE_IDLE:
-            log_msg("State: Idle");
+            if (lastState != state) log_msg("State: Idle");
+            lastState = state;
             if (!os_queryTimeCriticalJobs(sec2osticks(TX_INTERVAL))) {
-                log_msg("No scheduled jobs, scheduling do_sent() to run now.");
-                #ifdef BATTERY_ADC_PIN
-                    uint16_t batteryADC = analogRead(BATTERY_ADC_PIN);
-                    long batteryLevelMCMD = map(BATT_ADC_TO_INT_SHIFT(batteryADC),
-                            BATTERY_MAP_VAL_MIN, BATTERY_MAP_VAL_MAX,
-                            MCMD_DEVS_BATT_MIN, MCMD_DEVS_BATT_MAX);
-                    if (batteryLevelMCMD > MCMD_DEVS_BATT_MAX) {
-                        batteryLevelMCMD = MCMD_DEVS_BATT_MAX;
-                    } else if (batteryLevelMCMD < MCMD_DEVS_BATT_MIN) {
-                        batteryLevelMCMD = MCMD_DEVS_BATT_MIN;
-                    }
-                    #if USE_SERIAL
-                        snprintf(msg, MAX_MSG, "Battery: ADC=%d, Volt=%f, LMIC_vBat=%d\n",
-                                batteryADC,
-                                BATT_ADC_TO_INT_SHIFT(batteryADC),
-                                batteryLevelMCMD);
-                        serial.write(msg);
-                    #endif /* USE_SERIAL */
-                    LMIC_setBatteryLevel(batteryLevelMCMD);
-                #endif /* BATTERY_ADC_PIN */
                 // Start job (sending automatically starts OTAA too if not yet joined)
                 int input_button_c = digitalRead(BUTTON_C);
                 int input_button_b = digitalRead(BUTTON_B);
                 if ( !input_button_c && lastButtonCState) {
                     lastButtonCState = input_button_c;
+                    log_msg("No scheduled jobs, scheduling do_sent() to run now.");
+                    #ifdef BATTERY_ADC_PIN
+                        uint16_t batteryADC = analogRead(BATTERY_ADC_PIN);
+                        long batteryLevelMCMD = map(BATT_ADC_TO_INT_SHIFT(batteryADC),
+                                BATTERY_MAP_VAL_MIN, BATTERY_MAP_VAL_MAX,
+                                MCMD_DEVS_BATT_MIN, MCMD_DEVS_BATT_MAX);
+                        if (batteryLevelMCMD > MCMD_DEVS_BATT_MAX) {
+                            batteryLevelMCMD = MCMD_DEVS_BATT_MAX;
+                        } else if (batteryLevelMCMD < MCMD_DEVS_BATT_MIN) {
+                            batteryLevelMCMD = MCMD_DEVS_BATT_MIN;
+                        }
+                        #if USE_SERIAL
+                            snprintf(msg, MAX_MSG, "Battery: ADC=%d, Volt=%f, LMIC_vBat=%d\n",
+                                    batteryADC,
+                                    BATT_ADC_TO_INT_SHIFT(batteryADC),
+                                    batteryLevelMCMD);
+                            serial.write(msg);
+                        #endif /* USE_SERIAL */
+                        LMIC_setBatteryLevel(batteryLevelMCMD);
+                    #endif /* BATTERY_ADC_PIN */
                     os_setCallback(&sendjob, do_send);
                     display.println("do_send");
                     display.display();
                 } else if ( !input_button_b && lastButtonCState) {
+                    lastButtonCState = input_button_b;
+                    LMIC_reset();
                     LMIC_unjoinAndRejoin();
                     display.println("do_rejoin");
                     display.display();
                 } else if ( input_button_c && input_button_b && !lastButtonCState) {
-                    lastButtonCState = input_button_c;
+                    lastButtonCState = HIGH;
                 }
                 // state = STATE_LOW_POWER;
             }
